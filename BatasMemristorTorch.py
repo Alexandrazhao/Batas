@@ -3,116 +3,96 @@ import torch, os
 import torch.nn as nn
 
 class BatasMemristorTorch(nn.Module):
-    def __init__(self, InitVals=0.0, Percent=0.0, Size=None, DecayEffect=False, \
-            Theta=1.0, Vth=0.0, Verbose=False):
+    def __init__(self, Ron, Roff, D, uv, InitVals):
 
         # set the function name
-        FunctionName = "Oblea::__init__()"
-
-        # perecent
-        self.Percent = Percent
+        FunctionName = "Batas::__init__()"
 
         # memristor model name
-        self.ModelName = "Oblea"
+        self.ModelName = "Batas"
 
-        # save parameters
-        self.DecayEffect = DecayEffect
+        self.Ron = nn.Parameter(torch.tensor(Ron))
+        self.Roff = nn.Parameter(torch.tensor(Roff))
+        self.D = nn.Parameter(torch.tensor(D))
+        self.uv = nn.Parameter(torch.tensor(uv))
+        self.w = nn.Parameter(torch.tensor(InitVals))
 
-        # **********************************************************************
-        # flags
-        # **********************************************************************
-        if self.Percent > 0.0:
-            self.Ideal = False
-        else:
-            self.Ideal = True
+    def ResetInitVals(self, InitVals):
+        self.w.data = torch.tensor(InitVals)
 
-        self.Verbose = Verbose
 
-        # **********************************************************************
-        # constants for the model
-        # **********************************************************************
-        self.Vp = self.VpNom = torch.tensor(0.16, dtype=torch.float64)
-        self.Vn = self.VnNom = torch.tensor(0.15, dtype=torch.float64)
-        self.Ap = self.ApNom = torch.tensor(4000, dtype=torch.float64)
-        self.An = self.AnNom = torch.tensor(4000, dtype=torch.float64)
-        self.Xp = self.XpNom = torch.tensor(0.3, dtype=torch.float64)
-        self.Xn = self.XnNom = torch.tensor(0.5, dtype=torch.float64)
-        self.AlphaP = self.AlphaPNom = torch.tensor(1.0, dtype=torch.float64)
-        self.AlphaN = self.AlphaNNom = torch.tensor(5.0, dtype=torch.float64)
-        self.a1 = self.a1Nom = torch.tensor(0.17, dtype=torch.float64)
-        self.a2 = self.a2Nom = torch.tensor(0.17, dtype=torch.float64)
-        self.b  = self.bNom  = torch.tensor(0.05, dtype=torch.float64)
-        self.Xo = self.XoNom = torch.tensor(0.11, dtype=torch.float64)
-        self.Eta = self.EtaNom = torch.tensor(1.0, dtype=torch.float64)
+    def UpdateVals(self, Vin):
+        #Vin is externally applied voltage that is used to update the internal state 
+        # variable w of the memristor mode
+        self.w = self.w + Vin
 
-        # **********************************************************************
-        # check value for x
-        # **********************************************************************
-        self.CheckX = 1.0 - self.Xn
+    def GetInitVals(self, InitStates):
+        # Assuming InitStates contains relevant initial parameters
+        Ron = InitStates['Ron']
+        Roff = InitStates['Roff']
+        D = InitStates['D']
+        r = self.Ron * self.w / self.D + self.Roff * (1 - self.w / self.D)
+        return r
 
-        # **********************************************************************
-        # these values are specific to the device
-        # **********************************************************************
-        self.RhoMin = torch.tensor(0.01, dtype=torch.float64)
-        self.RhoMax = torch.tensor(0.9983, dtype=torch.float64)
-        self.DeltaRho = self.RhoMax - self.RhoMin
-        self.VRead  = torch.tensor(0.1, dtype=torch.float64)
+    def GetVals(self, VinVals):
+        self.UpdateVals(VinVals)
+        r = self.Ron * self.w / self.D + self.Roff * (1 - self.w / self.D)
+        return r
 
-        # **********************************************************************
-        # the threshold voltage for crossbar classifier; it is not needed for
-        # reservoir
-        # **********************************************************************
-        self.Vth = (torch.add(self.Vp, self.Vn) / 2.0).item()
+def GetWinHomePath():
+    # get the username from the environmental variables
+    UserName    = os.getenv("USERNAME")
+    FolderPath  = join("C:\\Users", UserName, "Documents")
+    return FolderPath
 
-        # print("self.Vth = ", self.Vth)
-        # exit()
+if __name__ == "__main__":
+    # import module
+    from os.path import join
+    import sys
+    import matplotlib.pyplot as plt
+    from matplotlib import rcParams
+    rcParams.update({"figure.autolayout": True})
 
-        # **********************************************************************
-        # get min and max values for conductance and resistance
-        # **********************************************************************
-        self.Gmin, self.Gmax, self.Rmin, self.Rmax = self._CalMinMaxValues()
+    # **************************************************************************
+    # set the function name
+    # **************************************************************************
+    FunctionName = "Batas::main()"
 
-        # state variable
-        self.Rho = self._CalRho(InitVals)
+    # **************************************************************************
+    # set the model name
+    # **************************************************************************
+    ModelName   = "Batas"
 
-        # set the inputs and outputs
-        if Size is not None:
-            (self.Inputs, self.Outputs) = Size
+    # **************************************************************************
+    # check the platform to import mem-models
+    # **************************************************************************
+    Platform = sys.platform
+    if (Platform == "darwin") or (Platform == "linux"):
+        # set common folders
+        CommonPath  = "/stash/tlab/dattransj/MemCommonFuncs"
 
-        # set the internal state variables
-        self._SetRho(Size)
+    elif Platform == "win32":
+        CommonPath  = join(GetWinHomePath(), "MemCommonFuncs")
+        
+    else:
+        # format error message
+        Msg = "unknown platform => <%s>" % (Platform)
+        raise ValueError(Msg)
 
-        # set the conductances
-        self.Conductances = self._CalConductance()
+    # append to the system path
+    sys.path.append(CommonPath)
+   # import WaveGenerator
 
-        # **********************************************************************
-        # display the message
-        # **********************************************************************
-        if self.Verbose:
-            # display the information
-            Msg = "\n==> Oblea Memristor Model ..."
-            print(Msg)
+    # **************************************************************************
+    # a temporary fix for OpenMP
+    # **************************************************************************
+    os.environ["KMP_DUPLICATE_LIB_OK"]="True"
 
-            # display the information
-            Msg = "...%-25s: RhoMin = %.8g, RhoMax = %.8g, Rmin = %.10g, Rmax = %.10g" % \
-                    (FunctionName, self.RhoMin, self.RhoMax, self.Rmin, self.Rmax)
-            print(Msg)
+    # Initialize the memristor with initial values
+    Ron = [0.5]
+    InitVals = [0.1]  # Initial value for w
+    Roff = [0.2]
+    D = [0.3]
+    uv =[[0.5]]
 
-            # display the information
-            Msg = "...%-25s: Percent = %.2g, VRead = %.2g, Vth = %.4g, Rho = %s" % \
-                    (FunctionName, self.Percent, self.VRead, self.Vth, str(Size))
-            print(Msg)
-
-            # display the information
-            Msg = "...%-25s: Gmin = %.10g, Gmax = %.10g" % (FunctionName, \
-                    self.Gmin, self.Gmax)
-            print(Msg)
-
-            # display the information
-            Msg = "...%-25s: Ideal = %s, Verbose = %s, Decay Effect = %s" % \
-                    (FunctionName, str(self.Ideal), str(self.Verbose), str(self.DecayEffect))
-            print(Msg)
-
-            # # display the information
-            # Msg = "...%-25s: ThresholdFlag = %s" % (FunctionName, str(ThresholdFlag))
-            # print(Msg)
+    memristor = BatasMemristorTorch(Ron, Roff, D, uv, InitVals)
