@@ -54,6 +54,17 @@ class BatasMemristorTorch(nn.Module):
             resistance_values.append(resistance.item())
         return resistance_values
 
+    def CalculateCurrent(self, VinVals):
+        # Calculate current for each applied voltage in VinVals
+        current_values = []
+        for Vin in VinVals:
+            # Calculate resistance for the applied voltage
+            resistance = self.RON * self.w / self.D + self.ROFF * (1 - self.w / self.D)
+            # Calculate current using Ohm's Law
+            current = Vin / resistance
+            current_values.append(current.item())
+        return current_values
+
 # Define the initial values
 RON = 100  # ON resistance (Ω)
 ROFF = 160 * RON  # OFF resistance (Ω)
@@ -67,15 +78,15 @@ memristor = BatasMemristorTorch(RON=RON, ROFF=ROFF, D=D, t0=t0, v0=v0)
 # Define voltage inputs
 Vin_values = [1.0, 0.5, 0.8]
 
-# Get resistance values for the applied voltages
-resistance_values = memristor.GetVals(Vin_values)
+# Calculate current values for the applied voltages
+current_values = memristor.CalculateCurrent(Vin_values)
 
-# Print resistance values
-print("Resistance values:", resistance_values)
+# Print current values
+print("Current values:", current_values)
 
-# Plot resistance values over time
-plt.plot(Vin_values, resistance_values)
+# Plot current values over time
+plt.plot(Vin_values, current_values)
 plt.xlabel('Applied Voltage (Vin)')
-plt.ylabel('Resistance')
-plt.title('Resistance vs. Applied Voltage')
+plt.ylabel('Current')
+plt.title('Current vs. Applied Voltage')
 plt.show()
