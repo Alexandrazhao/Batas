@@ -28,7 +28,7 @@ class BatasMemristorTorch(nn.Module):
 
     def UpdateVals(self, Vin):
         # Calculate change in w based on applied voltage Vin
-        dw = Vin * self.RON / self.D
+        dw = Vin * self.uv * self.RON / self.D
         self.w.data += dw
 
     def CalculateInitialResistance(self):
