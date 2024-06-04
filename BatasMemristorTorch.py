@@ -113,3 +113,67 @@ plt.ylabel('Current (I)')
 plt.title('Hysteresis Response: I vs. V')
 plt.grid(True)
 plt.show()
+
+class MNA:
+    def __init__(self, memristors, dt=0.001, t_end=2.0):
+        self.memristors = memristors
+        self.dt = dt
+        self.t_end = t_end
+        self.time_steps = int(t_end / dt)
+        self.vs = 2 * np.sin(2 * np.pi * 1 * np.arange(0, t_end, dt))  # 2V amplitude, 1Hz frequency sine wave
+
+    def construct_matrix(self, t):
+        # Construct matrix A and vector Z at time t
+        R1, R2, R3, R4, R5 = [m.CalculateResistance().item() for m in self.memristors]
+        vs_t = self.vs[t]
+
+        A = np.array([
+            [1, -1, 0, 0, 0, 0],
+            [-1, 1 + 1/R1 + 1/R4, -1/R1, 0, -1/R4, 0],
+            [0, -1/R1, 1 + 1/R1 + 1/R2, -1/R2, 0, 0],
+            [0, 0, -1/R2, 1 + 1/R2 + 1/R3 + 1/R5, -1/R3, -1/R5],
+            [0, -1/R4, 0, -1/R3, 1/R4 + 1/R3 + 1/R5, -1/R5],
+            [0, 0, 0, 0, -1, 1]
+        ])
+
+        Z = np.array([vs_t, 0, 0, 0, 0, 0])
+        
+        return A, Z
+
+    def solve(self):
+        voltages = np.zeros((self.time_steps, 4))  # Nodes 1, 2, 3, and source
+
+        for t in range(self.time_steps):
+            A, Z = self.construct_matrix(t)
+            X = np.linalg.solve(A, Z)  # Solve for voltages
+            voltages[t, :] = X[1:5]  # Store node voltages
+            
+            # Update memristor resistances
+            for i, mem in enumerate(self.memristors):
+                mem.UpdateVals(torch.tensor(voltages[t, i % 3]))  # Update based on node voltages
+
+        return voltages
+
+# Define the initial values for memristors
+RON = 100  # ON resistance (Ω)
+ROFF = 160 * RON  # OFF resistance (Ω)
+D = 10  # Overall device length
+t0 = 10  # Minimum drift time (ms)
+v0 = 1  # Initial voltage (V)
+
+# Create memristor instances
+memristors = [BatasMemristorTorch(RON, ROFF, D, t0, v0) for _ in range(5)]
+
+# Create MNA instance and solve for node voltages
+mna = MNA(memristors)
+voltages = mna.solve()
+
+# Plot voltage at node 3
+time = np.arange(0, mna.t_end, mna.dt)
+plt.plot(time, voltages[:, 2], label='$v_3(t)$')
+plt.xlabel('time (s)')
+plt.ylabel('Voltage (V)')
+plt.title('Voltage at Node 3 of a Memristive Circuit')
+plt.legend()
+plt.grid(True)
+plt.show()

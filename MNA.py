@@ -34,14 +34,14 @@ class BatasMemristorTorch(nn.Module):
         dw = Vin * self.uv * self.RON / self.D
         self.w.data += dw
 
-    def CalculateInitialResistance(self):
-        # Calculate initial resistance based on initial width
+    def CalculateResistance(self):
+        # Calculate resistance based on width
         r = self.RON * self.w / self.D + self.ROFF * (1 - self.w / self.D)
         return r
 
     def GetInitVals(self, InitStates):
         # Get initial resistance based on initial width
-        return self.CalculateInitialResistance().item()
+        return self.CalculateResistance().item()
 
     def GetVals(self, VinVals, dt):
         # Reset memristor state to initial values
@@ -53,7 +53,7 @@ class BatasMemristorTorch(nn.Module):
             # Update memristor state based on applied voltage
             self.UpdateVals(Vin)
             # Calculate resistance and append to the list
-            resistance = self.CalculateInitialResistance()
+            resistance = self.CalculateResistance()
             resistance_values.append(resistance.item())
         return resistance_values
 
@@ -79,37 +79,71 @@ def generate_waveform(wave_type, amplitude, frequency, duration, sampling_rate):
     else:
         raise ValueError("Unsupported wave type. Choose 'sine', 'square', or 'triangle'.")
 
-# Define the initial values
+class MNA:
+    def __init__(self, memristors, dt=0.001, t_end=2.0):
+        self.memristors = memristors
+        self.dt = dt
+        self.t_end = t_end
+        self.time_steps = int(t_end / dt)
+        self.vs = 2 * np.sin(2 * np.pi * 1 * np.arange(0, t_end, dt))  # 2V amplitude, 1Hz frequency sine wave
+
+    def construct_matrix(self, t):
+        # Construct matrix A and vector Z at time t
+        resistances = [m.CalculateResistance().item() for m in self.memristors]
+        vs_t = self.vs[t]
+
+        # Example extended MNA matrix and vector for a larger network
+        # Note: This should be adapted to the specific network structure
+        size = len(self.memristors) + 1
+        A = np.zeros((size, size))
+        Z = np.zeros(size)
+
+        # Populate matrix A and vector Z with values based on the circuit
+        A[0, 0] = 1
+        Z[0] = vs_t
+
+        for i in range(1, size):
+            A[i, i] = 1 + sum(1 / r for r in resistances)
+            A[i, 0] = -1 / resistances[i - 1]
+            A[0, i] = -1 / resistances[i - 1]
+
+        return A, Z
+
+    def solve(self):
+        voltages = np.zeros((self.time_steps, len(self.memristors) + 1))  # Nodes and source
+
+        for t in range(self.time_steps):
+            A, Z = self.construct_matrix(t)
+            X = np.linalg.solve(A, Z)  # Solve for voltages
+            voltages[t, :] = X  # Store node voltages
+            
+            # Update memristor resistances
+            for i, mem in enumerate(self.memristors):
+                mem.UpdateVals(torch.tensor(voltages[t, i + 1]))  # Update based on node voltages
+
+        return voltages
+
+# Define the initial values for memristors
 RON = 100  # ON resistance (Ω)
 ROFF = 160 * RON  # OFF resistance (Ω)
-D = 10  # Maximum drift distance (nm)
+D = 10  # Overall device length
 t0 = 10  # Minimum drift time (ms)
 v0 = 1  # Initial voltage (V)
 
-# Create memristor instance
-memristor = BatasMemristorTorch(RON=RON, ROFF=ROFF, D=D, t0=t0, v0=v0)
+# Create memristor instances
+memristors = [BatasMemristorTorch(RON, ROFF, D, t0, v0) for _ in range(5)]
 
-# Generate a sine waveform for input voltage
-wave_type = 'sine'  # Choose 'sine', 'square', or 'triangle'
-amplitude = 1.0  # Voltage amplitude
-frequency = 1.0  # Frequency in Hz
-duration = 2.0  # Duration in seconds
-sampling_rate = 1000  # Sampling rate in Hz
+# Create MNA instance and solve for node voltages
+mna = MNA(memristors)
+voltages = mna.solve()
 
-Vin_values = generate_waveform(wave_type, amplitude, frequency, duration, sampling_rate)
-Vin_values = torch.tensor(Vin_values, dtype=torch.float64)
-dt = 1 / sampling_rate  # Timestep
-
-# Calculate current values for the applied voltages
-current_values = memristor.CalculateCurrent(Vin_values)
-
-# Print current values
-print("Current values:", current_values)
-
-# Plot hysteresis response: I vs. V
-plt.plot(Vin_values.numpy(), current_values, marker='o')
-plt.xlabel('Applied Voltage (Vin)')
-plt.ylabel('Current (I)')
-plt.title('Hysteresis Response: I vs. V')
+# Plot voltage at node 3
+time = np.arange(0, mna.t_end, mna.dt)
+plt.plot(time, voltages[:, 3], label='$v_3(t)$')
+plt.xlabel('time (s)')
+plt.ylabel('Voltage (V)')
+plt.title('Voltage at Node 3 of a Memristive Circuit')
+plt.legend()
 plt.grid(True)
 plt.show()
+    
